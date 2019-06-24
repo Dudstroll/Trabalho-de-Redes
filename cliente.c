@@ -18,9 +18,8 @@
 #define h_addr h_addr_list[0]//para tirar aviso de que "h_addr" não está declarado
 
 typedef struct{
-    int ACK;
     char mensagem[100];
-} Pacote, Resposta;//Struct que será enviada para o servidor
+} Pacote;//Struct que será enviada para o servidor
 
 void transmissao(int, struct sockaddr_in);
 void esperaACK(int, struct sockaddr_in, socklen_t, Pacote, int);
@@ -136,7 +135,7 @@ void esperaACK(int clienteSocket, struct sockaddr_in servidor,socklen_t len,Paco
         if(setsockopt(clienteSocket,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout)) < 0){
             perror("Erro");
         }
-        if(recvfrom(clienteSocket,(char *)&pacote,sizeof(Pacote),MSG_WAITALL,(struct sockaddr *)&servidor,&len) < 0){
+        if(recvfrom(clienteSocket,(char *)&pacote,sizeof(Pacote),0,(struct sockaddr *)&servidor,&len) < 0){
             if((numRet+1) == 5){
                 puts("Retransmissão limite alcançada. Envio cancelado!!");
             }else{
@@ -146,7 +145,11 @@ void esperaACK(int clienteSocket, struct sockaddr_in servidor,socklen_t len,Paco
                 esperaACK(clienteSocket,servidor,len,pacote,numRet);
             }
         }else{
-            puts("ACK recebido!!");
+            if(strncmp(pacote.mensagem,"Dados incorretos",strlen("Dados incorretos")) == 0){
+                puts("Dados incorretos");
+            }else{
+                puts("ACK recebido!!");
+            }
         }
     }
 }
@@ -160,4 +163,4 @@ void enviar(Pacote pacote, int Socket, struct sockaddr_in servidor, socklen_t le
     }
 }
 //IP do pc: 192.168.25.32
-//D 1 0 2540 -22.2218 -54.8064
+//D, 1, 0, 2540, -22.2218, -54.8064
