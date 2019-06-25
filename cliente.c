@@ -18,11 +18,14 @@
 #define h_addr h_addr_list[0]//para tirar aviso de que "h_addr" não está declarado
 
 typedef struct{
+    //Salva o indicador atual da mensagem
+    int indicador;
+    //Salva os dados a serem enviados
     char mensagem[100];
-} Pacote;//Struct que será enviada para o servidor
+} Pacote;//Struct que envia e recebe dados do servidor
 
 void transmissao(int, struct sockaddr_in);
-void esperaACK(int, struct sockaddr_in, socklen_t, Pacote, int);
+void esperaACK(int, struct sockaddr_in, socklen_t, Pacote, Pacote,int);
 int novaPorta(int, struct sockaddr_in );
 void enviar(Pacote, int, struct sockaddr_in, socklen_t);
 
@@ -56,15 +59,9 @@ int main(int argc, char **argv)
         exit(1);
     }
     //Mesmo podendo usar a função connect(), em UDP nao muda nada, pois não ha conexão
-    // if(connect(clienteSocket,(struct sockaddr *)&servidor,sizeof(servidor)) < 0){
-    //     perror("Connect");
-    //     close(clienteSocket);
-    //     free(ip);
-    //     exit(1);
-    // }
-    //Em uma conexão UDP não precisa usar a função accept(), pois o cliente não estabelece uma conexão com o servidor
+    //Em UDP não precisa usar a função accept(), pois o cliente não estabelece uma conexão com o servidor
     //e o mesmo com o cliente, apenas mandam datadramas. Com isso eles nunca precisarão aceitar uma conexão, mas apenas
-    //esperar os dados chegarem
+    //enviar e esperar os dados chegar
 
     //Manda uma nova porta para o servidor e assim começar uma conexão nova
     servidor.sin_port = htons((__u_short)novaPorta(clienteSocket,servidor));
@@ -79,10 +76,16 @@ int main(int argc, char **argv)
 }
 
 void transmissao(int clienteSocket, struct sockaddr_in servidor){
-    Pacote pacote;//Pacote com os dados
+    //Pacote com os dados
+    Pacote pacote;
+    //Recebe os dados enviados pelo servidor
+    Pacote resposta;
     int n;
+    //Pega o tamanho da struct servidor
     socklen_t len = sizeof(servidor);
     int numRet = 0;//Define o numero de retransmissões
+    //A primeira mensagem tem indicador 0
+    pacote.indicador = 0;
     while(1){
         printf("> ");
         fgets(pacote.mensagem,99,stdin);
@@ -92,7 +95,7 @@ void transmissao(int clienteSocket, struct sockaddr_in servidor){
         if(sendto(clienteSocket,&pacote,sizeof(Pacote),MSG_CONFIRM,(const struct sockaddr *)&servidor,sizeof(servidor)) < 0){
             perror("Send");
         }else{
-            esperaACK(clienteSocket,servidor,len,pacote,numRet);
+            esperaACK(clienteSocket,servidor,len,pacote,resposta,numRet);
         }
         // bzero(&(pacote.mensagem),strlen(pacote.mensagem));
     }
@@ -125,7 +128,7 @@ int novaPorta(int socket_serv, struct sockaddr_in servidor){
 }
 
 //Se nao receber o ACK dentro do tempo limite manda denovo os dados
-void esperaACK(int clienteSocket, struct sockaddr_in servidor,socklen_t len,Pacote pacote, int numRet){
+void esperaACK(int clienteSocket, struct sockaddr_in servidor,socklen_t len,Pacote pacote, Pacote resposta,int numRet){
     struct timeval timeout;
     timeout.tv_sec = 1;//1 Segundo
     timeout.tv_usec = 250;//250 microsegundos = 25 milisegundos
@@ -135,20 +138,41 @@ void esperaACK(int clienteSocket, struct sockaddr_in servidor,socklen_t len,Paco
         if(setsockopt(clienteSocket,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout)) < 0){
             perror("Erro");
         }
-        if(recvfrom(clienteSocket,(char *)&pacote,sizeof(Pacote),0,(struct sockaddr *)&servidor,&len) < 0){
+        if(recvfrom(clienteSocket,(char *)&resposta,sizeof(Pacote),0,(struct sockaddr *)&servidor,&len) < 0){
+            //Se entra aqui é porque não recebeu resposta do servidor
             if((numRet+1) == 5){
                 puts("Retransmissão limite alcançada. Envio cancelado!!");
             }else{
                 puts("Tempo esgotado. Enviando outro pacote!!");
                 // sendto(clienteSocket,&pacote,sizeof(Pacote),MSG_CONFIRM,(const struct sockaddr *)&servidor,sizeof(servidor));
                 enviar(pacote,clienteSocket,servidor,len);
-                esperaACK(clienteSocket,servidor,len,pacote,numRet);
+                esperaACK(clienteSocket,servidor,len,pacote,resposta,numRet);
             }
         }else{
-            if(strncmp(pacote.mensagem,"Dados incorretos",strlen("Dados incorretos")) == 0){
-                puts("Dados incorretos");
+            //Se entrar aqui é porque recebeu o ACK do servidor
+            if(strncmp(resposta.mensagem,"Dados incorretos",strlen("Dados incorretos")) == 0){
+                puts("Dados no formato incorreto");
             }else{
-                puts("ACK recebido!!");
+                //ACK diferentes, reenvia o pacote
+                if(resposta.indicador != pacote.indicador){
+                    puts("ACK diferente do esperado!!");
+                    if((numRet+1) == 5){
+                        puts("Retransmissão limite alcançada. Envio cancelado!!");
+                    }else{
+                        puts("Enviando os dados novamente!!");
+                        enviar(pacote,clienteSocket,servidor,len);
+                        esperaACK(clienteSocket,servidor,len,pacote,resposta,numRet);
+                    }
+                }else{
+                    if(strncmp(resposta.mensagem,"Pacote duplicado",strlen("Pacote duplicado")) == 0){
+                        puts("Pacotes duplicados no servidor. Parando retransmissão!!");
+                        puts("Pacote entregue!!");
+                    }else{
+                        //O servidor recebeu o pacote sem erros
+                        puts("Pacote entregue!!");
+                        pacote.indicador = 1 - resposta.indicador;
+                    }
+                }
             }
         }
     }
@@ -163,4 +187,4 @@ void enviar(Pacote pacote, int Socket, struct sockaddr_in servidor, socklen_t le
     }
 }
 //IP do pc: 192.168.25.32
-//D, 1, 0, 2540, -22.2218, -54.8064
+//D 0 2540 -22.2218 -54.8064

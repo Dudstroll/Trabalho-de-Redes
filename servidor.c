@@ -15,10 +15,14 @@
 #include <netinet/in.h>
 #include <sys/wait.h>
 #include <signal.h>
+#include <ctype.h>//Para poder usar a função isdigit()
 
 typedef struct{
+    //Salva o indicador atual da mensagem
+    int indicador;
+    //Salva os dados a serem enviados
     char mensagem[100];
-} Pacote;//Struct para recebar o novaporta do novaporta
+} Pacote;//Struct que envia e recebe dados do cliente
 
 //mata processos zumbis
 void sigchld_handler(int);
@@ -43,11 +47,13 @@ int abrindoServidor(int, struct sockaddr_in, struct sockaddr_in);
 //recebe e trata os dados enviados pelo cliente
 void clienteNovo(Pacote, struct sockaddr_in, struct sockaddr_in);
 //Verifica se os dados então corretos; return 0 para falso e return 1 para verdadeiro
-int verificaDados(char *dado);
+int verificaDados(char *);
+//Verifica se o pacote atual é igual ao ultimo recebido, pacote duplicado
+int pacoteDuplicado(Pacote,Pacote);
 //Envia uma struct para o cliente
 void enviar(Pacote, int, struct sockaddr_in, socklen_t);
 //Envia o ACK para o cliente
-void enviarACK(int, int, struct sockaddr_in, socklen_t);
+// void enviarACK(int, int, struct sockaddr_in, socklen_t);
 
 int main(int argc, char **argv)
 {
@@ -123,8 +129,13 @@ void clienteNovo(Pacote pacote, struct sockaddr_in cliente, struct sockaddr_in s
     printf("PID do processo: %i\n", getpid());
     //Crio um novo socket para o cliente
     int clienteSocket = novoSocket();
-    int ACK;
-    int proxSeq;
+    //Salva o pacote anterior
+    Pacote pacoteAnte;
+    //Como o proximo pacote é o primeiro não tem como comparar com um anterior, pois não tem
+    //assim pacoteAnte é preenchido com algo para ter diferença com o pacote recebido
+    //o indicador recebe -1 so para a primeira comparação depois ele recebe 0 ou 1
+    pacoteAnte.indicador = -1;
+    sprintf(pacoteAnte.mensagem,"primeiro texto");
     socklen_t len = sizeof(cliente);
     //Associa uma porta para o socket
     //Tenho que usar a struct servidor, pois não tem como dar bind no socket
@@ -138,27 +149,29 @@ void clienteNovo(Pacote pacote, struct sockaddr_in cliente, struct sockaddr_in s
         recvfrom(clienteSocket,(char *)&pacote,sizeof(Pacote),MSG_WAITALL,(struct sockaddr *)&cliente,&len);
         //Exemplo: D 1 0 2540 -22.2218 -54.8064
         pacote.mensagem[strlen(pacote.mensagem)] = '\0';
-        ACK = (int*)(pacote.mensagem[2]);
-        ACK = 1 - ACK;
-        if(verificaDados(pacote.mensagem)){
-            //Envia o ACK para o cliente
-            enviarACK(ACK,clienteSocket,cliente,len);
-            // if(sendto(clienteSocket,&pacote,sizeof(Pacote),MSG_CONFIRM,(const struct sockaddr *)&cliente,sizeof(cliente)) < 0){
-            //     perror("Send ACK");
-            //     return;
-            // }
-            //Imprime a mensagem na tela
-            printf("Dados recebidos >> %s\n",pacote.mensagem);
-            if(pacote.mensagem[0] == 'D'){//Se o texto começar com 'D' é para gravar no arquivo
-                armazenaDados(pacote.mensagem);
-                puts("Dados salvos!!");
-                // bzero(&(pacote.mensagem),strlen(pacote.mensagem));
-            }else if(pacote.mensagem[0] == 'P'){
+        printf("ACK >> %d\n",pacote.indicador);
+        if(pacoteDuplicado(pacote,pacoteAnte)){
+            //entra aqui se os pacotes forem diferentes
+            if(verificaDados(pacote.mensagem)){
+                //Envia o ACK para o cliente
+                enviar(pacote,clienteSocket,cliente,len);
+                //Imprime a mensagem na tela
+                printf("Dados recebidos >> %s\n",pacote.mensagem);
+                if(pacote.mensagem[0] == 'D'){//Se o texto começar com 'D' é para gravar no arquivo
+                    armazenaDados(pacote.mensagem);
+                    puts("Dados salvos!!");
+                    // bzero(&(pacote.mensagem),strlen(pacote.mensagem));
+                }else if(pacote.mensagem[0] == 'P'){
 
+                }
+            }else{//Se o texto não começar com 'D' ou 'P' ele retorna pro cliente erro
+                puts("Formato invalido!!");
+                sprintf(pacote.mensagem,"Dados incorretos");
+                enviar(pacote,clienteSocket,cliente,len);
             }
-        }else{//Se o texto não começar com 'D' ou 'P' ele retorna pro cliente erro
-            puts("Formato invalido!!");
-            sprintf(pacote.mensagem,"Dados incorretos");
+        }else{
+            puts("Pacote duplicado!!");
+            sprintf(pacote.mensagem,"Pacote duplicado");
             enviar(pacote,clienteSocket,cliente,len);
         }
     }
@@ -208,12 +221,70 @@ int novaPorta(int socket_serv, struct sockaddr_in cliente, socklen_t len){
     puts("Porta trocada!!");
     return porta;
 }
-//Verifica se os dados então corretos
-int verificaDados(char *dado){
 
+int pacoteDuplicado(Pacote pacoteAtual, Pacote pacoteAnte){
+    if(strncmp(pacoteAtual.mensagem,pacoteAnte.mensagem,strlen(pacoteAnte.mensagem)) == 0
+    && pacoteAtual.indicador == pacoteAnte.indicador){
+        return 0;//É duplicado
+    }else{
+        return 1;//É diferente
+    }
+}
+
+//Verifica se os dados então corretos
+//exemplo de pacote correto -> D 0 2540 -22.2218 -54.8064
+int verificaDados(char *dado){
+    //pega parte da string para verificação
+    char *parte;
+    const char letra = ' ';
+    int x = 0;
+    //primeira palavra
+    parte = strtok(dado,letra);
+    // ||
+    // V
+    // D 0 2540 -22.2218 -54.8064
+    if(parte[0] != 'D' && parte[0] != 'P'){
+        return 0;
+    }
+    parte = strtok(NULL,letra);
+    //   ||
+    //   V
+    // D 0 2540 -22.2218 -54.8064
+    if(parte[0] != '0' && parte[0] != '1' && parte[0] != '2'){
+        return 0;
+    }
+    parte = strtok(NULL,letra);
+    
+    while(parte[x] != '\0'){
+        if(!isdigit(parte[x])){
+            return 0;
+        }
+        x++;
+    }
+    x = 0;
+    parte = strtok(NULL,letra);
+    while(parte[x] != '\0'){
+        if(parte[x] != '-' && parte[x] != '.'){
+            if(!isdigit(parte[x])){
+                return 0;
+            }
+        }
+        x++;
+    }
+    x = 0;
+    parte = strtok(NULL,letra);
+    while(parte[x] != '\0'){
+        if(parte[x] != '-' && parte[x] != '.'){
+            if(!isdigit(parte[x])){
+                return 0;
+            }
+        }
+        x++;
+    }
+    return 1;
 }
 void armazenaDados(char *texto){
-    strcpy(texto,corta_Texto(texto,texto[4]));//tirá o D da string para salvar no arquivo
+    strcpy(texto,corta_Texto(texto,texto[1]));//tirá o D da string para salvar no arquivo
     grava_Arq(texto);//grava os dados no arquivo
 }
 
@@ -247,13 +318,13 @@ void enviar(Pacote pacote, int Socket, struct sockaddr_in cliente, socklen_t len
     }
 }
 
-void enviarACK(int ACK, int Socket, struct sockaddr_in cliente, socklen_t len){
-    if(sendto(Socket,&ACK,sizeof(ACK),0,(const struct sockaddr *)&cliente,len) < 0){
-        perror("Send");
-        close(Socket);
-        exit(1);
-    }
-}
+// void enviarACK(int ACK, int Socket, struct sockaddr_in cliente, socklen_t len){
+//     if(sendto(Socket,&ACK,sizeof(ACK),0,(const struct sockaddr *)&cliente,len) < 0){
+//         perror("Send");
+//         close(Socket);
+//         exit(1);
+//     }
+// }
 
 //função para ligar (ou associar) o socket a uma porta 
 int novoBind(int *socket,struct sockaddr_in servidor){
