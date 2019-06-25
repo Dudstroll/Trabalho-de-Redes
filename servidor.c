@@ -39,7 +39,7 @@ void armazenaDados(char *);
 //Corta a string para gravar no arquivo so os dados necessarios
 char *corta_Texto(char *, char);
 //grava os dados no arquivo
-void grava_Arq(char *);
+void grava_Arq(char *,char);
 //Faz a pesquisa no arquivo
 char* pesquisa_Arq(char *);
 //abre o servidor 
@@ -146,13 +146,16 @@ void clienteNovo(Pacote pacote, struct sockaddr_in cliente, struct sockaddr_in s
     }
     //Troca de dados
     while(1){
-        recvfrom(clienteSocket,(char *)&pacote,sizeof(Pacote),MSG_WAITALL,(struct sockaddr *)&cliente,&len);
+        recvfrom(clienteSocket,&pacote,sizeof(Pacote),MSG_WAITALL,(struct sockaddr *)&cliente,&len);
         //Exemplo: D 1 0 2540 -22.2218 -54.8064
         pacote.mensagem[strlen(pacote.mensagem)] = '\0';
         printf("ACK >> %d\n",pacote.indicador);
         if(pacoteDuplicado(pacote,pacoteAnte)){
             //entra aqui se os pacotes forem diferentes
             if(verificaDados(pacote.mensagem)){
+                //salva o pacote atual para comparar com o proximo pacote
+                pacoteAnte.indicador = pacote.indicador;
+                strcpy(pacoteAnte.mensagem,pacote.mensagem);
                 //Envia o ACK para o cliente
                 enviar(pacote,clienteSocket,cliente,len);
                 //Imprime a mensagem na tela
@@ -221,7 +224,7 @@ int novaPorta(int socket_serv, struct sockaddr_in cliente, socklen_t len){
     puts("Porta trocada!!");
     return porta;
 }
-
+//Verifica se o pacote é duplicado
 int pacoteDuplicado(Pacote pacoteAtual, Pacote pacoteAnte){
     if(strncmp(pacoteAtual.mensagem,pacoteAnte.mensagem,strlen(pacoteAnte.mensagem)) == 0
     && pacoteAtual.indicador == pacoteAnte.indicador){
@@ -232,65 +235,125 @@ int pacoteDuplicado(Pacote pacoteAtual, Pacote pacoteAnte){
 }
 
 //Verifica se os dados então corretos
-//exemplo de pacote correto -> D 0 2540 -22.2218 -54.8064
+//exemplo de pacote correto -> //P 0 20 -22.2218 -54.8064 //Pesquisa
+//                              D 1 2540 -22.2218 -54.8064 //Dados
 int verificaDados(char *dado){
+    //Se o tamanho da string for menor que 2 da erro
+    if(strlen(dado) <= 2){
+        puts("Erro no tamanho");
+        return 0;
+    }
     //pega parte da string para verificação
+    char copia[50];
+    strcpy(copia,dado);
     char *parte;
-    const char letra = ' ';
+    const char letra[2] = " ";
     int x = 0;
-    //primeira palavra
-    parte = strtok(dado,letra);
-    // ||
-    // V
-    // D 0 2540 -22.2218 -54.8064
-    if(parte[0] != 'D' && parte[0] != 'P'){
-        return 0;
-    }
-    parte = strtok(NULL,letra);
-    //   ||
-    //   V
-    // D 0 2540 -22.2218 -54.8064
-    if(parte[0] != '0' && parte[0] != '1' && parte[0] != '2'){
-        return 0;
-    }
-    parte = strtok(NULL,letra);
-    
-    while(parte[x] != '\0'){
-        if(!isdigit(parte[x])){
+    parte = strtok(copia,letra);
+    //tipo de mensagem
+    if(parte[0] == 'D'){
+        //Pega o tipo de gasolina
+        parte = strtok(NULL,letra);
+        if(parte[0] != '0' && parte[0] != '1' && parte[0] != '2'){
+            puts("Erro no tipo de combustivel");
             return 0;
         }
-        x++;
-    }
-    x = 0;
-    parte = strtok(NULL,letra);
-    while(parte[x] != '\0'){
-        if(parte[x] != '-' && parte[x] != '.'){
+        //Pega o preço do combustivel
+        parte = strtok(NULL,letra);
+        while(parte[x] != '\0'){
             if(!isdigit(parte[x])){
+                puts("Erro no valor");
                 return 0;
             }
+            x++;
         }
-        x++;
-    }
-    x = 0;
-    parte = strtok(NULL,letra);
-    while(parte[x] != '\0'){
-        if(parte[x] != '-' && parte[x] != '.'){
-            if(!isdigit(parte[x])){
+        x = 0;
+        //Pega a coordenada X
+        parte = strtok(NULL,letra);
+        while(parte[x] != '\0'){
+            if(parte[x] != '-' && parte[x] != '.'){
+                if(!isdigit(parte[x])){
+                    puts("Erro na coordenada X");
+                    return 0;
+                }
+            }
+            x++;
+        }
+        x = 0;
+        //Pega a coordenada Y
+        parte = strtok(NULL,letra);
+        while(parte[x] != '\0'){
+            if(parte[x] != '-' && parte[x] != '.' && parte[x] != '\n'){
+                if(!isdigit(parte[x])){
+                    puts("Erro na coordenada Y");
+                    return 0;
+                }
+            }
+            x++;
+        }
+        //Se chegou aqui é porque esta certo
+        return 1;
+    }else{
+        if(parte[0] == 'P'){
+            //Pega o tipo de gasolina
+            parte = strtok(NULL,letra);
+            if(parte[0] != '0' && parte[0] != '1' && parte[0] != '2'){
+                puts("Erro no tipo de combustivel");
                 return 0;
             }
+            //Pega o raio de busca
+            parte = strtok(NULL,letra);
+            while(parte[x] != '\0'){
+                if(!isdigit(parte[x])){
+                    puts("Erro no raio de busca");
+                    return 0;
+                }
+                x++;
+            }
+            //Pega a coordenada X
+            parte = strtok(NULL,letra);
+            while(parte[x] != '\0'){
+                if(parte[x] != '-' && parte[x] != '.'){
+                    if(!isdigit(parte[x])){
+                        puts("Erro na coordenada X");
+                        return 0;
+                    }
+                }
+                x++;
+            }
+            x = 0;
+            //Pega a coordenada Y
+            parte = strtok(NULL,letra);
+            while(parte[x] != '\0'){
+                if(parte[x] != '-' && parte[x] != '.' && parte[x] != '\n'){
+                    if(!isdigit(parte[x])){
+                        puts("Erro na coordenada Y");
+                        return 0;
+                    }
+                }
+                x++;
+            }
+            //Se chegou aqui é porque esta certo
+            return 1;
+        }else{
+            puts("Erro D ou P");
+            return 0;
         }
-        x++;
     }
-    return 1;
 }
+
 void armazenaDados(char *texto){
-    strcpy(texto,corta_Texto(texto,texto[1]));//tirá o D da string para salvar no arquivo
-    grava_Arq(texto);//grava os dados no arquivo
+    char aux = texto[2];
+    //tirá o D da string para salvar no arquivo
+    strcpy(texto,corta_Texto(texto,texto[4]));
+    //grava os dados no arquivo, texto[0] para passar o tipo de gasolina
+    //e gravar em arquivo separado
+    grava_Arq(texto,aux);
 }
 
 //Corta a string para manipular os dados
 char *corta_Texto(char *texto, char ch){
-    //D 1 0 2540 -22.2218 -54.8064
+    //D 0 2540 -22.2218 -54.8064
     // char ch = texto[4];//pega a posição onde começa o tipo de gasolina
     char *aux;//vai salvar a nova string
     aux = strchr(texto,ch);
@@ -299,12 +362,24 @@ char *corta_Texto(char *texto, char ch){
 
 //Realiza a pesquisa no arquivo
 char* pesquisa_Arq(char *dados){
-
+    /*EM ANDAMENTO*/
 }
 
 //Grava os dados recebidos no arquivo
-void grava_Arq(char *dados){
-    FILE *arquivo = fopen("Dados.txt","a");
+void grava_Arq(char *dados, char tipo){
+    char nome[50];
+    if(tipo == '0'){
+        strcpy(nome,"diesel.txt");
+    }else{
+        if(tipo == '1'){
+            strcpy(nome,"alcool.txt");
+        }else{
+            if(tipo == '2'){
+                strcpy(nome,"gasolina.txt");
+            }
+        }
+    }
+    FILE *arquivo = fopen(nome,"a");
     fprintf(arquivo,"%s",dados);
     fclose(arquivo);
 }
@@ -317,14 +392,6 @@ void enviar(Pacote pacote, int Socket, struct sockaddr_in cliente, socklen_t len
         exit(1);
     }
 }
-
-// void enviarACK(int ACK, int Socket, struct sockaddr_in cliente, socklen_t len){
-//     if(sendto(Socket,&ACK,sizeof(ACK),0,(const struct sockaddr *)&cliente,len) < 0){
-//         perror("Send");
-//         close(Socket);
-//         exit(1);
-//     }
-// }
 
 //função para ligar (ou associar) o socket a uma porta 
 int novoBind(int *socket,struct sockaddr_in servidor){

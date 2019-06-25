@@ -96,6 +96,7 @@ void transmissao(int clienteSocket, struct sockaddr_in servidor){
             perror("Send");
         }else{
             esperaACK(clienteSocket,servidor,len,pacote,resposta,numRet);
+            pacote.indicador = 1 - pacote.indicador;
         }
         // bzero(&(pacote.mensagem),strlen(pacote.mensagem));
     }
@@ -170,7 +171,6 @@ void esperaACK(int clienteSocket, struct sockaddr_in servidor,socklen_t len,Paco
                     }else{
                         //O servidor recebeu o pacote sem erros
                         puts("Pacote entregue!!");
-                        pacote.indicador = 1 - resposta.indicador;
                     }
                 }
             }
