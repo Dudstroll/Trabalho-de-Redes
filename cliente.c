@@ -88,7 +88,6 @@ void transmissao(int clienteSocket, struct sockaddr_in servidor){
     Pacote pacote;
     //Recebe os dados enviados pelo servidor
     Pacote resposta;
-    int n;
     //Pega o tamanho da struct servidor
     socklen_t len = sizeof(servidor);
     int numRet = 0;//Define o numero de retransmissões
@@ -105,7 +104,7 @@ void transmissao(int clienteSocket, struct sockaddr_in servidor){
             break;
         }
         strcpy((char *)aux,pacote.mensagem);
-        pacote.cheksum = CheckSum(aux,strlen(aux));
+        pacote.cheksum = CheckSum(aux,strlen((const char *)aux));
         if(sendto(clienteSocket,&pacote,sizeof(Pacote),MSG_CONFIRM,(const struct sockaddr *)&servidor,sizeof(servidor)) < 0){
             perror("Send");
         }else{

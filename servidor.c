@@ -68,7 +68,6 @@ int main(int argc, char **argv)
     int ServerSocket;//declaração do socket
     int porta;//pega a porta passada na linha de comando
     int valor_setsock;//usado na função setsockopt()
-    int pid;//usado no fork()
     struct sockaddr_in servidor,cliente;//estrutura que salva o endereço do servidor; salva o endereço do cliente
 
     if(argc>1){
@@ -168,7 +167,7 @@ void clienteNovo(Pacote pacote, struct sockaddr_in cliente, struct sockaddr_in s
             if(verificaDados(pacote.mensagem)){
                 strcpy((char *)aux,pacote.mensagem);
                 //se for igual, o pacote não foi corrompido
-                if(CheckSum(aux,strlen(aux)) == pacote.cheksum){
+                if(CheckSum(aux,strlen((const char *)aux)) == pacote.cheksum){
                     //salva o pacote atual para comparar com o proximo pacote
                     pacoteAnte.indicador = pacote.indicador;
                     strcpy(pacoteAnte.mensagem,pacote.mensagem);
@@ -214,7 +213,7 @@ int portaAleatoria(struct sockaddr_in cliente){
     int porta/*  = ntohs(cliente.sin_port) */;
     int Socket_serv = socket(AF_INET,SOCK_DGRAM,17);
     struct sockaddr_in aux_cliente;
-    int len = sizeof(aux_cliente);
+    socklen_t len = sizeof(aux_cliente);
 
     cliente.sin_family = AF_INET;
     cliente.sin_addr.s_addr = INADDR_ANY;
