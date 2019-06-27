@@ -18,16 +18,24 @@
 #define h_addr h_addr_list[0]//para tirar aviso de que "h_addr" não está declarado
 
 typedef struct{
+    //salva o cheksum
+    unsigned char cheksum;
     //Salva o indicador atual da mensagem
     int indicador;
     //Salva os dados a serem enviados
     char mensagem[100];
 } Pacote;//Struct que envia e recebe dados do servidor
 
+//Envia os dados para o servidor
 void transmissao(int, struct sockaddr_in);
+//Espera o ACK do servidor
 void esperaACK(int, struct sockaddr_in, socklen_t, Pacote, Pacote,int);
+//Espera uma nova porta do servidor
 int novaPorta(int, struct sockaddr_in );
+//Envia os dados para o servidor
 void enviar(Pacote, int, struct sockaddr_in, socklen_t);
+//Calcula o checksum
+unsigned char CheckSum(unsigned char *ptr, size_t sz);
 
 int main(int argc, char **argv)
 {
@@ -86,12 +94,18 @@ void transmissao(int clienteSocket, struct sockaddr_in servidor){
     int numRet = 0;//Define o numero de retransmissões
     //A primeira mensagem tem indicador 0
     pacote.indicador = 0;
+    //usado no cheksum
+    unsigned char aux[75];
+
     while(1){
         printf("> ");
-        fgets(pacote.mensagem,99,stdin);
+        fgets(pacote.mensagem,sizeof(pacote.mensagem),stdin);
         if(strncmp(pacote.mensagem,"exit",strlen("exit")) == 0){
+            sendto(clienteSocket,&pacote,sizeof(Pacote),MSG_CONFIRM,(const struct sockaddr *)&servidor,sizeof(servidor));
             break;
         }
+        strcpy((char *)aux,pacote.mensagem);
+        pacote.cheksum = CheckSum(aux,strlen(aux));
         if(sendto(clienteSocket,&pacote,sizeof(Pacote),MSG_CONFIRM,(const struct sockaddr *)&servidor,sizeof(servidor)) < 0){
             perror("Send");
         }else{
@@ -112,11 +126,6 @@ int novaPorta(int socket_serv, struct sockaddr_in servidor){
     sprintf(portaNova.mensagem,"Nova porta");
     //Faz uma primeira conexão para trocar as portas
     enviar(portaNova,socket_serv,servidor,len);
-    // if(sendto(socket_serv,&portaNova,sizeof(Pacote),MSG_CONFIRM,(const struct sockaddr *)&servidor,sizeof(servidor)) < 0){
-    //     perror("Send porta");
-    //     close(socket_serv);
-    //     exit(1);
-    // }
     //Recebe uma nova porta do servidor
     if(recvfrom(socket_serv,(char *)&portaNova,sizeof(Pacote),MSG_WAITALL,(struct sockaddr *)&servidor,&len) < 0){
         perror("Recvfrom porta");
@@ -139,7 +148,7 @@ void esperaACK(int clienteSocket, struct sockaddr_in servidor,socklen_t len,Paco
         if(setsockopt(clienteSocket,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout)) < 0){
             perror("Erro");
         }
-        if(recvfrom(clienteSocket,(char *)&resposta,sizeof(Pacote),0,(struct sockaddr *)&servidor,&len) < 0){
+        if(recvfrom(clienteSocket,&resposta,sizeof(Pacote),0,(struct sockaddr *)&servidor,&len) < 0){
             //Se entra aqui é porque não recebeu resposta do servidor
             if((numRet+1) == 5){
                 puts("Retransmissão limite alcançada. Envio cancelado!!");
@@ -152,6 +161,7 @@ void esperaACK(int clienteSocket, struct sockaddr_in servidor,socklen_t len,Paco
         }else{
             //Se entrar aqui é porque recebeu o ACK do servidor
             if(strncmp(resposta.mensagem,"Dados incorretos",strlen("Dados incorretos")) == 0){
+                //dados estão em um formato invalido, por isso não há retransmissão
                 puts("Dados no formato incorreto");
             }else{
                 //ACK diferentes, reenvia o pacote
@@ -165,17 +175,44 @@ void esperaACK(int clienteSocket, struct sockaddr_in servidor,socklen_t len,Paco
                         esperaACK(clienteSocket,servidor,len,pacote,resposta,numRet);
                     }
                 }else{
-                    if(strncmp(resposta.mensagem,"Pacote duplicado",strlen("Pacote duplicado")) == 0){
-                        puts("Pacotes duplicados no servidor. Parando retransmissão!!");
-                        puts("Pacote entregue!!");
+                    //ACK está correto, mas falta verificar o checksum
+                    if(strncmp(resposta.mensagem,"CheckSum invalido",strlen("CheckSum invalido")) == 0){
+                        puts("Pacote foi corrompido. Enviando os dados novamente!!");
+                        if((numRet+1) == 5){
+                            puts("Retransmissão limite alcançada. Envio cancelado!!");
+                        }else{
+                            puts("Enviando os dados novamente!!");
+                            enviar(pacote,clienteSocket,servidor,len);
+                            esperaACK(clienteSocket,servidor,len,pacote,resposta,numRet);
+                        }
                     }else{
-                        //O servidor recebeu o pacote sem erros
-                        puts("Pacote entregue!!");
+                        //checksum está correto
+                        //informa sobre pacotes duplicados no servidor e para a retransmissão
+                        if(strncmp(resposta.mensagem,"Pacote duplicado",strlen("Pacote duplicado")) == 0){
+                            puts("Pacotes duplicados no servidor. Parando retransmissão!!");
+                            puts("Pacote entregue!!");
+                        }else{
+                            //O servidor recebeu o pacote sem erros
+                            puts("Pacote entregue!!");
+                            //espera os dados do servidor se for uma pesquisa
+                            if(pacote.mensagem[0] == 'P'){
+                                recvfrom(clienteSocket,&resposta,sizeof(Pacote),MSG_WAITALL,(struct sockaddr *)&servidor,&len);
+                                printf("Posto com menor preco: %s",resposta.mensagem);
+                            }
+                        }
                     }
                 }
             }
         }
     }
+}
+
+//Calcula o checksum
+unsigned char CheckSum(unsigned char *ptr, size_t sz){
+    unsigned char chk = 0;
+    while (sz-- != 0)
+        chk -= *ptr++;
+    return chk;
 }
 
 //Envia o pacote para o servidor

@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>//para usar a função bzero()
 #include <unistd.h>
+#include <math.h>
 #include <time.h>
 #include <netdb.h>//função gethostbyname()
 #include <sys/types.h>
@@ -17,7 +18,12 @@
 #include <signal.h>
 #include <ctype.h>//Para poder usar a função isdigit()
 
+//Constante PI para o calculo da distancia
+#define PI 3.14159265358979323846
+
 typedef struct{
+    //salva o cheksum
+    unsigned char cheksum;
     //Salva o indicador atual da mensagem
     int indicador;
     //Salva os dados a serem enviados
@@ -37,11 +43,13 @@ int novaPorta(int ,struct sockaddr_in, socklen_t);
 //Armazena os dados no arquivo
 void armazenaDados(char *);
 //Corta a string para gravar no arquivo so os dados necessarios
-char *corta_Texto(char *, char);
+char *corta_Texto(char *, const char);
 //grava os dados no arquivo
-void grava_Arq(char *,char);
+void grava_Arq(char *, const char);
 //Faz a pesquisa no arquivo
-char* pesquisa_Arq(char *);
+void pesquisa_Arq(char *, const char, char *);
+//calcula a distancia entre as coordenadas
+double Distancia(double, double, double, double);
 //abre o servidor 
 int abrindoServidor(int, struct sockaddr_in, struct sockaddr_in);
 //recebe e trata os dados enviados pelo cliente
@@ -52,8 +60,8 @@ int verificaDados(char *);
 int pacoteDuplicado(Pacote,Pacote);
 //Envia uma struct para o cliente
 void enviar(Pacote, int, struct sockaddr_in, socklen_t);
-//Envia o ACK para o cliente
-// void enviarACK(int, int, struct sockaddr_in, socklen_t);
+//Calcula o checksum
+unsigned char CheckSum(unsigned char *ptr, size_t sz);
 
 int main(int argc, char **argv)
 {
@@ -92,7 +100,7 @@ int main(int argc, char **argv)
     }/* else puts("Bind realizado!!"); */
 
     // FILE *arq = fopen("Dados.txt","r+");
-    puts("Aguardando Dados!!");
+    puts("Servidor aberto!!");
 
     signal(SIGCHLD, sigchld_handler);//Ativa o manipulador de sinais antes de entrar no loop
 
@@ -126,7 +134,7 @@ int abrindoServidor(int ServerSocket, struct sockaddr_in cliente, struct sockadd
 }
 
 void clienteNovo(Pacote pacote, struct sockaddr_in cliente, struct sockaddr_in servidor){
-    printf("PID do processo: %i\n", getpid());
+    printf("Cliente novo no processo: %i\n", getpid());
     //Crio um novo socket para o cliente
     int clienteSocket = novoSocket();
     //Salva o pacote anterior
@@ -137,6 +145,8 @@ void clienteNovo(Pacote pacote, struct sockaddr_in cliente, struct sockaddr_in s
     pacoteAnte.indicador = -1;
     sprintf(pacoteAnte.mensagem,"primeiro texto");
     socklen_t len = sizeof(cliente);
+
+    unsigned char aux[75];
     //Associa uma porta para o socket
     //Tenho que usar a struct servidor, pois não tem como dar bind no socket
     //usando o endereço do cliente
@@ -149,23 +159,40 @@ void clienteNovo(Pacote pacote, struct sockaddr_in cliente, struct sockaddr_in s
         recvfrom(clienteSocket,&pacote,sizeof(Pacote),MSG_WAITALL,(struct sockaddr *)&cliente,&len);
         //Exemplo: D 1 0 2540 -22.2218 -54.8064
         pacote.mensagem[strlen(pacote.mensagem)] = '\0';
-        printf("ACK >> %d\n",pacote.indicador);
+        if(strncmp(pacote.mensagem,"exit",strlen("exit")) == 0){
+            break;
+        }
         if(pacoteDuplicado(pacote,pacoteAnte)){
             //entra aqui se os pacotes forem diferentes
+            //muda a string para unsigned char
             if(verificaDados(pacote.mensagem)){
-                //salva o pacote atual para comparar com o proximo pacote
-                pacoteAnte.indicador = pacote.indicador;
-                strcpy(pacoteAnte.mensagem,pacote.mensagem);
-                //Envia o ACK para o cliente
-                enviar(pacote,clienteSocket,cliente,len);
-                //Imprime a mensagem na tela
-                printf("Dados recebidos >> %s\n",pacote.mensagem);
-                if(pacote.mensagem[0] == 'D'){//Se o texto começar com 'D' é para gravar no arquivo
-                    armazenaDados(pacote.mensagem);
-                    puts("Dados salvos!!");
-                    // bzero(&(pacote.mensagem),strlen(pacote.mensagem));
-                }else if(pacote.mensagem[0] == 'P'){
-
+                strcpy((char *)aux,pacote.mensagem);
+                //se for igual, o pacote não foi corrompido
+                if(CheckSum(aux,strlen(aux)) == pacote.cheksum){
+                    //salva o pacote atual para comparar com o proximo pacote
+                    pacoteAnte.indicador = pacote.indicador;
+                    strcpy(pacoteAnte.mensagem,pacote.mensagem);
+                    //Envia o ACK para o cliente
+                    enviar(pacote,clienteSocket,cliente,len);
+                    //Imprime a mensagem na tela
+                    printf("Dados recebidos: %s",pacote.mensagem);
+                    if(pacote.mensagem[0] == 'D'){//Se o texto começar com 'D' é para gravar no arquivo
+                        armazenaDados(pacote.mensagem);
+                        puts("Dados salvos!!");
+                        // bzero(&(pacote.mensagem),strlen(pacote.mensagem));
+                    }else if(pacote.mensagem[0] == 'P'){
+                        char resultado[50];
+                        pesquisa_Arq(pacote.mensagem,pacote.mensagem[2],resultado);
+                        strcpy(pacote.mensagem,resultado);
+                        fflush(stdout);
+                        printf("Posto com menor preco: %s",pacote.mensagem);
+                        enviar(pacote,clienteSocket,cliente,len);
+                    }
+                }else{
+                    //A deu diferença na soma
+                    puts("CheckSum invalido. Pacote Corrompido!!");
+                    sprintf(pacote.mensagem,"CheckSum invalido");
+                    enviar(pacote,clienteSocket,cliente,len);
                 }
             }else{//Se o texto não começar com 'D' ou 'P' ele retorna pro cliente erro
                 puts("Formato invalido!!");
@@ -179,7 +206,7 @@ void clienteNovo(Pacote pacote, struct sockaddr_in cliente, struct sockaddr_in s
         }
     }
     close(clienteSocket);
-    puts("Fecho cliente");
+    puts("Cliente saiu!!");
 }
 
 //pega uma porta aleatoria 
@@ -205,7 +232,6 @@ int portaAleatoria(struct sockaddr_in cliente){
     //pega nova porta
     //ntohs() converte de network byte order para host byte order
     porta = ntohs(aux_cliente.sin_port);
-    printf("Nova porta >> %d\n",porta);
     //Fecho o Socket_serv para liberar a porta que foi pega pelo bind
     close(Socket_serv);
     return porta;
@@ -213,7 +239,6 @@ int portaAleatoria(struct sockaddr_in cliente){
 
 //Envia a nova porta para o cliente
 int novaPorta(int socket_serv, struct sockaddr_in cliente, socklen_t len){
-    puts("Esperando porta nova!!");
     Pacote novaporta;
     //variavel int que vai receber a porta nova
     int porta = portaAleatoria(cliente);
@@ -221,7 +246,6 @@ int novaPorta(int socket_serv, struct sockaddr_in cliente, socklen_t len){
     sprintf(novaporta.mensagem,"%d",porta);
     //manda a porta nova para o cliente
     enviar(novaporta,socket_serv,cliente,len);
-    puts("Porta trocada!!");
     return porta;
 }
 //Verifica se o pacote é duplicado
@@ -235,8 +259,8 @@ int pacoteDuplicado(Pacote pacoteAtual, Pacote pacoteAnte){
 }
 
 //Verifica se os dados então corretos
-//exemplo de pacote correto -> //P 0 20 -22.2218 -54.8064 //Pesquisa
-//                              D 1 2540 -22.2218 -54.8064 //Dados
+//exemplo de pacote correto -> //P 2 20 -22.2218 -54.8064 //Pesquisa
+//                              D 0 2540 -22.2218 -54.8064 //Dados
 int verificaDados(char *dado){
     //Se o tamanho da string for menor que 2 da erro
     if(strlen(dado) <= 2){
@@ -346,27 +370,90 @@ void armazenaDados(char *texto){
     char aux = texto[2];
     //tirá o D da string para salvar no arquivo
     strcpy(texto,corta_Texto(texto,texto[4]));
-    //grava os dados no arquivo, texto[0] para passar o tipo de gasolina
+    //grava os dados no arquivo, texto[2] para passar o tipo de gasolina
     //e gravar em arquivo separado
     grava_Arq(texto,aux);
 }
 
 //Corta a string para manipular os dados
-char *corta_Texto(char *texto, char ch){
+char *corta_Texto(char *texto, const char ch){
     //D 0 2540 -22.2218 -54.8064
-    // char ch = texto[4];//pega a posição onde começa o tipo de gasolina
     char *aux;//vai salvar a nova string
     aux = strchr(texto,ch);
     return aux;
 }
 
 //Realiza a pesquisa no arquivo
-char* pesquisa_Arq(char *dados){
-    /*EM ANDAMENTO*/
+void pesquisa_Arq(char *dados, const char tipo, char *resultado){
+    //P 0 20 -22.2218 -54.8064
+    char nome[25];
+    if(tipo == '0'){
+        strcpy(nome,"diesel.txt");
+    }else{
+        if(tipo == '1'){
+            strcpy(nome,"alcool.txt");
+        }else{
+            if(tipo == '2'){
+                strcpy(nome,"gasolina.txt");
+            }
+        }
+    }
+	FILE *arquivo = fopen(nome,"r");
+    int raio;
+    char *aux;
+    double latCli,longCli;
+    aux = strtok(dados," ");//corta o P
+    aux = strtok(NULL," ");//corta o tipo de gasolina
+    aux = strtok(NULL," ");//pega o raio
+    raio = atoi(aux);//converte o raio para inteiro
+    aux = strtok(NULL," ");//pega a latitude
+    latCli = atof(aux);//muda de string para double
+    aux = strtok(NULL," ");///pega a longitude
+    longCli = atof(aux);//muda de string para double
+    //dados do arquivo
+	float precom = 9999.0, preco;
+    double lat,longi;
+    //dados do menor preço
+    double latm,longim;
+    char texto[50];
+    while(fgets(texto,sizeof(texto),arquivo) != NULL){
+        //pega o preço 
+       	aux = strtok(texto," ");
+		preco = atof(aux);
+		aux = strtok(NULL," ");
+		lat = atof(aux);
+		aux = strtok(NULL," ");
+		longi = atof(aux);
+        if(Distancia(latCli,longCli,lat,longi) < raio){
+			if(preco < precom){
+				precom = preco;//salva o preço
+				latm = lat;//salva a latitude
+				longim = longi;//salva a longitude
+			}
+		}
+    }
+    //usa o fprintf para gravar o retorno na string
+    //sprintf(str, "Value of Pi = %f", M_PI);
+    sprintf(resultado,"%0.4f %0.7f %0.7f \n",precom/1000,latm,longim);
+    fclose(arquivo);
 }
 
+//calcula a distancia entre as coordenadas
+double Distancia(double latitude1, double longitude1, double latitude2, double longitude2){
+    int RaioDaTerra = 6371; //Raio da terra em kilometros
+	//Pega a diferença entre dois pontos 
+	//e converte a diferença em radianos
+    double nDLat = (latitude2 - latitude1) * (PI/180);
+    double nDLon = (longitude2 - longitude1) * (PI/180);
+    double nA = pow ( sin(nDLat/2), 2 ) + cos(latitude1) * cos(latitude2) * pow ( sin(nDLon/2), 2 );
+ 
+    double nC = 2 * atan2( sqrt(nA), sqrt( 1 - nA ));
+    double nD = RaioDaTerra * nC;
+ 
+    return nD; //Retorna a distância entre os pontos
+}
 //Grava os dados recebidos no arquivo
-void grava_Arq(char *dados, char tipo){
+void grava_Arq(char *dados, const char tipo){
     char nome[50];
     if(tipo == '0'){
         strcpy(nome,"diesel.txt");
@@ -382,6 +469,14 @@ void grava_Arq(char *dados, char tipo){
     FILE *arquivo = fopen(nome,"a");
     fprintf(arquivo,"%s",dados);
     fclose(arquivo);
+}
+
+//Calcula o checksum
+unsigned char CheckSum(unsigned char *ptr, size_t sz){
+    unsigned char chk = 0;
+    while (sz-- != 0)
+        chk -= *ptr++;
+    return chk;
 }
 
 //Envia o pacote para o cliente
