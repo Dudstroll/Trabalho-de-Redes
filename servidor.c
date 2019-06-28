@@ -46,6 +46,8 @@ void armazenaDados(char *);
 char *corta_Texto(char *, const char);
 //grava os dados no arquivo
 void grava_Arq(char *, const char);
+//Verifica se o arquivo está vazio
+int arquivoVazio(const char );
 //Faz a pesquisa no arquivo
 void pesquisa_Arq(char *, const char, char *);
 //calcula a distancia entre as coordenadas
@@ -156,7 +158,7 @@ void clienteNovo(Pacote pacote, struct sockaddr_in cliente, struct sockaddr_in s
     //Troca de dados
     while(1){
         recvfrom(clienteSocket,&pacote,sizeof(Pacote),MSG_WAITALL,(struct sockaddr *)&cliente,&len);
-        //Exemplo: D 1 0 2540 -22.2218 -54.8064
+        //Exemplo: D 0 2540 -22.2218 -54.8064
         pacote.mensagem[strlen(pacote.mensagem)] = '\0';
         if(strncmp(pacote.mensagem,"exit",strlen("exit")) == 0){
             break;
@@ -180,12 +182,18 @@ void clienteNovo(Pacote pacote, struct sockaddr_in cliente, struct sockaddr_in s
                         puts("Dados salvos!!");
                         // bzero(&(pacote.mensagem),strlen(pacote.mensagem));
                     }else if(pacote.mensagem[0] == 'P'){
-                        char resultado[50];
-                        pesquisa_Arq(pacote.mensagem,pacote.mensagem[2],resultado);
-                        strcpy(pacote.mensagem,resultado);
-                        fflush(stdout);
-                        printf("Posto com menor preco: %s",pacote.mensagem);
-                        enviar(pacote,clienteSocket,cliente,len);
+                        if(arquivoVazio(pacote.mensagem[2])){
+                            sprintf(pacote.mensagem,"Arquivo peladão!!");
+                            enviar(pacote,clienteSocket,cliente,len);
+                        }else{
+                            char resultado[50];
+                            pesquisa_Arq(pacote.mensagem,pacote.mensagem[2],resultado);
+                            strcpy(pacote.mensagem,resultado);
+                            fflush(stdout);
+                            printf("Posto com menor preco: %s",pacote.mensagem);
+                            enviar(pacote,clienteSocket,cliente,len);
+
+                        }
                     }
                 }else{
                     //A deu diferença na soma
@@ -258,10 +266,19 @@ int pacoteDuplicado(Pacote pacoteAtual, Pacote pacoteAnte){
 }
 
 //Verifica se os dados então corretos
-//exemplo de pacote correto -> //P 2 20 -22.2218 -54.8064 //Pesquisa
+//exemplo de pacote correto -> //P 0 20 -22.2218 -54.8064 //Pesquisa
 //                              D 0 2540 -22.2218 -54.8064 //Dados
 int verificaDados(char *dado){
     //Se o tamanho da string for menor que 2 da erro
+    int x = 0;
+    while(dado[x] != '\0'){
+        if(dado[x] == ' ' && dado[x+1] == ' '){
+            puts("Sequencia de espaços detectada!!");
+            return 0;
+        }
+        x++;
+    }
+    x = 0;
     if(strlen(dado) <= 2){
         puts("Erro no tamanho");
         return 0;
@@ -271,7 +288,6 @@ int verificaDados(char *dado){
     strcpy(copia,dado);
     char *parte;
     const char letra[2] = " ";
-    int x = 0;
     parte = strtok(copia,letra);
     //tipo de mensagem
     if(parte[0] == 'D'){
@@ -382,6 +398,23 @@ char *corta_Texto(char *texto, const char ch){
     return aux;
 }
 
+//Verifica se o arquivo está vazio
+int arquivoVazio(const char tipo){
+    FILE *arquivo = fopen("teste.txt","a");
+	long tamanho = 0;
+
+	if(arquivo != NULL){
+		fseek(arquivo,0,SEEK_END);
+		tamanho = ftell(arquivo);
+		if(tamanho == 0){
+			puts("Arquivo sem dados!!");
+            return 0;
+		}
+        return 1;
+	}
+	fclose(arquivo);
+}
+
 //Realiza a pesquisa no arquivo
 void pesquisa_Arq(char *dados, const char tipo, char *resultado){
     //P 0 20 -22.2218 -54.8064
@@ -415,7 +448,9 @@ void pesquisa_Arq(char *dados, const char tipo, char *resultado){
     //dados do menor preço
     double latm,longim;
     char texto[50];
+    int cont=0;
     while(fgets(texto,sizeof(texto),arquivo) != NULL){
+        cont++;
         //pega o preço 
        	aux = strtok(texto," ");
 		preco = atof(aux);
@@ -451,6 +486,7 @@ double Distancia(double latitude1, double longitude1, double latitude2, double l
  
     return nD; //Retorna a distância entre os pontos
 }
+
 //Grava os dados recebidos no arquivo
 void grava_Arq(char *dados, const char tipo){
     char nome[50];

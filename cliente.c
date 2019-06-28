@@ -145,7 +145,7 @@ void esperaACK(int clienteSocket, struct sockaddr_in servidor,socklen_t len,Paco
     if(numRet < 5){
         puts("Esperando ACK!!");
         if(setsockopt(clienteSocket,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout)) < 0){
-            perror("Erro");
+            perror("Erro na retransmissão!!");
         }
         if(recvfrom(clienteSocket,&resposta,sizeof(Pacote),0,(struct sockaddr *)&servidor,&len) < 0){
             //Se entra aqui é porque não recebeu resposta do servidor
