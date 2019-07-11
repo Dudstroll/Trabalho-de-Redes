@@ -36,6 +36,8 @@ int novaPorta(int, struct sockaddr_in );
 void enviar(Pacote, int, struct sockaddr_in, socklen_t);
 //Calcula o checksum
 unsigned char CheckSum(unsigned char *ptr, size_t sz);
+//Mostra as informações sobre o posto recebido pelo servidor
+void mostraPosto(char *);
 
 int main(int argc, char **argv)
 {
@@ -99,6 +101,7 @@ void transmissao(int clienteSocket, struct sockaddr_in servidor){
     while(1){
         printf("> ");
         fgets(pacote.mensagem,sizeof(pacote.mensagem),stdin);
+        //finaliza a conexão com o servidor
         if(strncmp(pacote.mensagem,"exit",strlen("exit")) == 0){
             sendto(clienteSocket,&pacote,sizeof(Pacote),MSG_CONFIRM,(const struct sockaddr *)&servidor,sizeof(servidor));
             break;
@@ -145,7 +148,7 @@ void esperaACK(int clienteSocket, struct sockaddr_in servidor,socklen_t len,Paco
     if(numRet < 5){
         puts("Esperando ACK!!");
         if(setsockopt(clienteSocket,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout)) < 0){
-            perror("Erro na retransmissão!!");
+            perror("Erro");
         }
         if(recvfrom(clienteSocket,&resposta,sizeof(Pacote),0,(struct sockaddr *)&servidor,&len) < 0){
             //Se entra aqui é porque não recebeu resposta do servidor
@@ -163,7 +166,7 @@ void esperaACK(int clienteSocket, struct sockaddr_in servidor,socklen_t len,Paco
                 //dados estão em um formato invalido, por isso não há retransmissão
                 puts("Dados no formato incorreto");
             }else{
-                //ACK diferentes, reenvia o pacote
+                //Com ACKs diferentes, reenvia o pacote
                 if(resposta.indicador != pacote.indicador){
                     puts("ACK diferente do esperado!!");
                     if((numRet+1) == 5){
@@ -180,7 +183,6 @@ void esperaACK(int clienteSocket, struct sockaddr_in servidor,socklen_t len,Paco
                         if((numRet+1) == 5){
                             puts("Retransmissão limite alcançada. Envio cancelado!!");
                         }else{
-                            puts("Enviando os dados novamente!!");
                             enviar(pacote,clienteSocket,servidor,len);
                             esperaACK(clienteSocket,servidor,len,pacote,resposta,numRet);
                         }
@@ -196,7 +198,18 @@ void esperaACK(int clienteSocket, struct sockaddr_in servidor,socklen_t len,Paco
                             //espera os dados do servidor se for uma pesquisa
                             if(pacote.mensagem[0] == 'P'){
                                 recvfrom(clienteSocket,&resposta,sizeof(Pacote),MSG_WAITALL,(struct sockaddr *)&servidor,&len);
-                                printf("Posto com menor preco: %s",resposta.mensagem);
+                                //verifica a resposta do servidor 
+                                if(strncmp(resposta.mensagem,"Arquivo sem dados!!",strlen("Arquivo sem dados!!")) == 0){
+                                    puts("Arquivo sem dados!!");
+                                }else{
+                                    //verifica se o servidor retorno um posto na area
+                                    if(strncmp(resposta.mensagem,"Nenhum posto na area!!",strlen("Nenhum posto na area!!")) == 0){
+                                        puts("Nenhum posto na area!!");
+                                    }else{
+                                        //foi encontrado um posto 
+                                        mostraPosto(resposta.mensagem);
+                                    }
+                                }
                             }
                         }
                     }
@@ -204,6 +217,48 @@ void esperaACK(int clienteSocket, struct sockaddr_in servidor,socklen_t len,Paco
             }
         }
     }
+}
+
+//Mostra as informações sobre o posto recebido pelo servidor
+void mostraPosto(char *dado){
+    char *resposta;
+    resposta = (char *)malloc(strlen(dado) * sizeof(char));
+
+    strcpy(resposta,dado);
+    //token para receber as partes
+    char *token;
+    //compara o tipo de combustivel
+    const char tipo = resposta[0];
+    //delimitador
+    const char letra[2] = " ";
+    //pega o tipo de combustivel
+    token = strtok(resposta,letra);
+    puts("======================================");
+    if(tipo == '0'){
+        puts("Resultado para diesel: ");
+    }else{
+        if(tipo == '1'){
+            puts("Resultado para alcool: ");
+        }else{
+            if(tipo == '2'){
+                puts("Resultado para gasolina: ");
+            }
+        }
+    }
+    //pega o preço
+    token = strtok(NULL,letra);
+    printf("Preço: R$%s\n",token);
+    //pega latitude
+    token = strtok(NULL,letra);
+    printf("Latitude: %s\n",token);
+    //pega longitude
+    token = strtok(NULL,letra);
+    printf("Longitude: %s\n",token);
+    //pega a distancia
+    token = strtok(NULL,letra);
+    printf("Distancia: %sKM\n",token);
+    puts("======================================");
+    free(resposta);
 }
 
 //Calcula o checksum

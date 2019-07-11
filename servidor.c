@@ -1,6 +1,6 @@
 //******************************************
 //
-//executar como ./servidor ip porta
+//executar como ./servidor porta
 //
 //******************************************
 #include <stdio.h>
@@ -58,6 +58,8 @@ int abrindoServidor(int, struct sockaddr_in, struct sockaddr_in);
 void clienteNovo(Pacote, struct sockaddr_in, struct sockaddr_in);
 //Verifica se os dados então corretos; return 0 para falso e return 1 para verdadeiro
 int verificaDados(char *);
+//Verifica se o pacote tem exatamente 5 partes Ex: D 0 4439 -21.22182 -54.8064
+int numPartes(char *);
 //Verifica se o pacote atual é igual ao ultimo recebido, pacote duplicado
 int pacoteDuplicado(Pacote,Pacote);
 //Envia uma struct para o cliente
@@ -147,6 +149,7 @@ void clienteNovo(Pacote pacote, struct sockaddr_in cliente, struct sockaddr_in s
     sprintf(pacoteAnte.mensagem,"primeiro texto");
     socklen_t len = sizeof(cliente);
 
+    //recebe o pacote para a soma do checksum
     unsigned char aux[75];
     //Associa uma porta para o socket
     //Tenho que usar a struct servidor, pois não tem como dar bind no socket
@@ -157,51 +160,55 @@ void clienteNovo(Pacote pacote, struct sockaddr_in cliente, struct sockaddr_in s
     }
     //Troca de dados
     while(1){
+        //espera dados do cliente
         recvfrom(clienteSocket,&pacote,sizeof(Pacote),MSG_WAITALL,(struct sockaddr *)&cliente,&len);
-        //Exemplo: D 0 2540 -22.2218 -54.8064
+        //Exemplo: D 1 0 2540 -22.2218 -54.8064
         pacote.mensagem[strlen(pacote.mensagem)] = '\0';
+        //se o pacote for "exit" finaliza esse processo
         if(strncmp(pacote.mensagem,"exit",strlen("exit")) == 0){
             break;
         }
         if(pacoteDuplicado(pacote,pacoteAnte)){
             //entra aqui se os pacotes forem diferentes
-            //muda a string para unsigned char
             if(verificaDados(pacote.mensagem)){
+                //muda a string para unsigned char para fazer o checksum
                 strcpy((char *)aux,pacote.mensagem);
                 //se for igual, o pacote não foi corrompido
                 if(CheckSum(aux,strlen((const char *)aux)) == pacote.cheksum){
                     //salva o pacote atual para comparar com o proximo pacote
                     pacoteAnte.indicador = pacote.indicador;
                     strcpy(pacoteAnte.mensagem,pacote.mensagem);
+                    //Nesse ponto os dados estão corretos
                     //Envia o ACK para o cliente
                     enviar(pacote,clienteSocket,cliente,len);
                     //Imprime a mensagem na tela
                     printf("Dados recebidos: %s",pacote.mensagem);
-                    if(pacote.mensagem[0] == 'D'){//Se o texto começar com 'D' é para gravar no arquivo
+                    //Se o texto começar com 'D' é para gravar no arquivo
+                    if(pacote.mensagem[0] == 'D'){
                         armazenaDados(pacote.mensagem);
                         puts("Dados salvos!!");
-                        // bzero(&(pacote.mensagem),strlen(pacote.mensagem));
+                        //Se o texto começar com 'P' faz a pesquisa no arquivo
                     }else if(pacote.mensagem[0] == 'P'){
+                        //verifica se o arquivo ta vazio
                         if(arquivoVazio(pacote.mensagem[2])){
-                            sprintf(pacote.mensagem,"Arquivo peladão!!");
+                            //Arquivo vazio
+                            sprintf(pacote.mensagem,"Arquivo sem dados!!");
                             enviar(pacote,clienteSocket,cliente,len);
                         }else{
+                            //Arquivo não está vazio
                             char resultado[50];
                             pesquisa_Arq(pacote.mensagem,pacote.mensagem[2],resultado);
                             strcpy(pacote.mensagem,resultado);
-                            fflush(stdout);
-                            printf("Posto com menor preco: %s",pacote.mensagem);
                             enviar(pacote,clienteSocket,cliente,len);
-
                         }
                     }
                 }else{
-                    //A deu diferença na soma
+                    //Deu diferença no checksum
                     puts("CheckSum invalido. Pacote Corrompido!!");
                     sprintf(pacote.mensagem,"CheckSum invalido");
                     enviar(pacote,clienteSocket,cliente,len);
                 }
-            }else{//Se o texto não começar com 'D' ou 'P' ele retorna pro cliente erro
+            }else{//Se a mensagem não tiver no padrão retorna para o cliente que os dados estão incorretos
                 puts("Formato invalido!!");
                 sprintf(pacote.mensagem,"Dados incorretos");
                 enviar(pacote,clienteSocket,cliente,len);
@@ -213,7 +220,7 @@ void clienteNovo(Pacote pacote, struct sockaddr_in cliente, struct sockaddr_in s
         }
     }
     close(clienteSocket);
-    puts("Cliente saiu!!");
+    printf("Cliente do processo |%i| saiu!!\n", getpid());
 }
 
 //pega uma porta aleatoria 
@@ -266,11 +273,11 @@ int pacoteDuplicado(Pacote pacoteAtual, Pacote pacoteAnte){
 }
 
 //Verifica se os dados então corretos
-//exemplo de pacote correto -> //P 0 20 -22.2218 -54.8064 //Pesquisa
+//exemplo de pacote correto -> //P 2 20 -22.2218 -54.8064 //Pesquisa
 //                              D 0 2540 -22.2218 -54.8064 //Dados
 int verificaDados(char *dado){
-    //Se o tamanho da string for menor que 2 da erro
     int x = 0;
+    //verifica se tem mais de dois espaços na mensagem
     while(dado[x] != '\0'){
         if(dado[x] == ' ' && dado[x+1] == ' '){
             puts("Sequencia de espaços detectada!!");
@@ -279,16 +286,23 @@ int verificaDados(char *dado){
         x++;
     }
     x = 0;
+    //Se o tamanho da string for menor que 2 da erro
     if(strlen(dado) <= 2){
-        puts("Erro no tamanho");
+        puts("Erro no tamanho!");
         return 0;
     }
-    //pega parte da string para verificação
+    if(numPartes(dado)){
+        puts("Erro na formatação!");
+        return 0;
+    }
+    //divide a string em partes para verificação
     char copia[50];
     strcpy(copia,dado);
     char *parte;
     const char letra[2] = " ";
     parte = strtok(copia,letra);
+    //conta os sinais
+    int cont_sinais = 0;
     //tipo de mensagem
     if(parte[0] == 'D'){
         //Pega o tipo de gasolina
@@ -310,6 +324,13 @@ int verificaDados(char *dado){
         //Pega a coordenada X
         parte = strtok(NULL,letra);
         while(parte[x] != '\0'){
+            if(parte[x] == '-' || parte[x] == '.'){
+                cont_sinais++;
+                if(cont_sinais > 2){
+                    puts("Mais de dois sinais!!");
+                    return 0;
+                }
+            }
             if(parte[x] != '-' && parte[x] != '.'){
                 if(!isdigit(parte[x])){
                     puts("Erro na coordenada X");
@@ -319,9 +340,17 @@ int verificaDados(char *dado){
             x++;
         }
         x = 0;
+        cont_sinais = 0;
         //Pega a coordenada Y
         parte = strtok(NULL,letra);
         while(parte[x] != '\0'){
+            if(parte[x] == '-' || parte[x] == '.'){
+                cont_sinais++;
+                if(cont_sinais > 2){
+                    puts("Mais de dois sinais!!");
+                    return 0;
+                }
+            }
             if(parte[x] != '-' && parte[x] != '.' && parte[x] != '\n'){
                 if(!isdigit(parte[x])){
                     puts("Erro na coordenada Y");
@@ -349,9 +378,17 @@ int verificaDados(char *dado){
                 }
                 x++;
             }
+            x = 0;
             //Pega a coordenada X
             parte = strtok(NULL,letra);
             while(parte[x] != '\0'){
+                if(parte[x] == '-' || parte[x] == '.'){
+                    cont_sinais++;
+                    if(cont_sinais > 2){
+                        puts("Mais de dois sinais!!");
+                        return 0;
+                    }
+                }
                 if(parte[x] != '-' && parte[x] != '.'){
                     if(!isdigit(parte[x])){
                         puts("Erro na coordenada X");
@@ -361,9 +398,17 @@ int verificaDados(char *dado){
                 x++;
             }
             x = 0;
+            cont_sinais = 0;
             //Pega a coordenada Y
             parte = strtok(NULL,letra);
             while(parte[x] != '\0'){
+                if(parte[x] == '-' || parte[x] == '.'){
+                    cont_sinais++;
+                    if(cont_sinais > 2){
+                        puts("Mais de dois sinais!!");
+                        return 0;
+                    }
+                }
                 if(parte[x] != '-' && parte[x] != '.' && parte[x] != '\n'){
                     if(!isdigit(parte[x])){
                         puts("Erro na coordenada Y");
@@ -381,6 +426,62 @@ int verificaDados(char *dado){
     }
 }
 
+//Verifica se o pacote tem exatamente 5 partes Ex: D 0 4439 -21.22182 -54.8064
+int numPartes(char *dado){
+    char *aux;
+    aux = (char *)malloc(strlen(dado)*sizeof(char));
+    strcpy(aux,dado);
+    char *token;
+    const char letra[2] = " ";
+    //se o cont > 5, tem erro na formatação do pacote
+    int cont = 0;
+    //pega a primeira parte
+    token = strtok(aux,letra);
+    //caminha pelas outras partes
+    while(token != NULL){
+        token = strtok(NULL,letra);
+        cont++;
+    }
+    //formato errado
+    if(cont > 5){
+        free(aux);
+        return 1;
+    }
+    //formato correto
+    free(aux);
+    return 0;
+}
+
+//Verifica se o arquivo está vazio
+int arquivoVazio(const char tipo){
+    char nome[25];
+    if(tipo == '0'){
+        strcpy(nome,"diesel.txt");
+    }else{
+        if(tipo == '1'){
+            strcpy(nome,"alcool.txt");
+        }else{
+            if(tipo == '2'){
+                strcpy(nome,"gasolina.txt");
+            }
+        }
+    }
+    FILE *arquivo = fopen(nome,"a");
+	long tamanho = 0;
+
+	if(arquivo != NULL){
+		fseek(arquivo,0,SEEK_END);
+		tamanho = ftell(arquivo);
+		if(tamanho == 0){
+			puts("Arquivo sem dados!!");
+            fclose(arquivo);
+            return 1;
+		}
+	}
+    fclose(arquivo);
+    return 0;
+}
+
 void armazenaDados(char *texto){
     char aux = texto[2];
     //tirá o D da string para salvar no arquivo
@@ -395,24 +496,29 @@ char *corta_Texto(char *texto, const char ch){
     //D 0 2540 -22.2218 -54.8064
     char *aux;//vai salvar a nova string
     aux = strchr(texto,ch);
+    // printf("%s\n",aux);
     return aux;
 }
 
-//Verifica se o arquivo está vazio
-int arquivoVazio(const char tipo){
-    FILE *arquivo = fopen("teste.txt","a");
-	long tamanho = 0;
-
-	if(arquivo != NULL){
-		fseek(arquivo,0,SEEK_END);
-		tamanho = ftell(arquivo);
-		if(tamanho == 0){
-			puts("Arquivo sem dados!!");
-            return 0;
-		}
-        return 1;
-	}
-	fclose(arquivo);
+//Grava os dados recebidos no arquivo
+void grava_Arq(char *dados, const char tipo){
+    //Verifica o tipo de combustivel para abrir o arquivo certo e gravar
+    char nome[50];
+    if(tipo == '0'){
+        strcpy(nome,"diesel.txt");
+    }else{
+        if(tipo == '1'){
+            strcpy(nome,"alcool.txt");
+        }else{
+            if(tipo == '2'){
+                strcpy(nome,"gasolina.txt");
+            }
+        }
+    }
+    // printf("%s\n",dados);
+    FILE *arquivo = fopen(nome,"a");
+    fprintf(arquivo,"%s",dados);
+    fclose(arquivo);
 }
 
 //Realiza a pesquisa no arquivo
@@ -448,9 +554,13 @@ void pesquisa_Arq(char *dados, const char tipo, char *resultado){
     //dados do menor preço
     double latm,longim;
     char texto[50];
+    //verifica se tem postos na area de pesquisa
     int cont=0;
+    //pega a distancia
+    double dist;
+    //salva a distancia para mandar para o cliente
+    double menorDist;
     while(fgets(texto,sizeof(texto),arquivo) != NULL){
-        cont++;
         //pega o preço 
        	aux = strtok(texto," ");
 		preco = atof(aux);
@@ -458,17 +568,46 @@ void pesquisa_Arq(char *dados, const char tipo, char *resultado){
 		lat = atof(aux);
 		aux = strtok(NULL," ");
 		longi = atof(aux);
-        if(Distancia(latCli,longCli,lat,longi) < raio){
+        dist = Distancia(latCli,longCli,lat,longi);
+        if(dist < raio){
+            cont++;
 			if(preco < precom){
 				precom = preco;//salva o preço
 				latm = lat;//salva a latitude
 				longim = longi;//salva a longitude
+                menorDist = dist;
 			}
 		}
     }
+    //se cont = 0, então nenhum posto foi encontrado na área
+    if(cont == 0){
+        puts("Nenhum posto na area!!");
+        sprintf(resultado,"Nenhum posto na area!!");
+        //limpa o buffer de saida
+        fflush(stdout);
+        fclose(arquivo);
+        return;
+    }
+    puts("======================================");
+    if(tipo == '0'){
+        puts("Resultado para diesel: ");
+    }else{
+        if(tipo == '1'){
+            puts("Resultado para alcool: ");
+        }else{
+            if(tipo == '2'){
+                puts("Resultado para gasolina: ");
+            }
+        }
+    }
+    printf("Preço: R$%0.4f\n",precom/1000);
+    printf("Latitude: %0.7f\n",latm);
+    printf("Longitude: %0.7f\n",longim);
+    printf("Distancia: %0.2fKM\n",menorDist);
+    puts("======================================");
     //usa o fprintf para gravar o retorno na string
     //sprintf(str, "Value of Pi = %f", M_PI);
-    sprintf(resultado,"%0.4f %0.7f %0.7f \n",precom/1000,latm,longim);
+    sprintf(resultado,"%c %0.4f %0.7f %0.7f %0.2f \n",tipo,precom/1000,latm,longim,menorDist);
     fclose(arquivo);
 }
 
@@ -485,25 +624,6 @@ double Distancia(double latitude1, double longitude1, double latitude2, double l
     double nD = RaioDaTerra * nC;
  
     return nD; //Retorna a distância entre os pontos
-}
-
-//Grava os dados recebidos no arquivo
-void grava_Arq(char *dados, const char tipo){
-    char nome[50];
-    if(tipo == '0'){
-        strcpy(nome,"diesel.txt");
-    }else{
-        if(tipo == '1'){
-            strcpy(nome,"alcool.txt");
-        }else{
-            if(tipo == '2'){
-                strcpy(nome,"gasolina.txt");
-            }
-        }
-    }
-    FILE *arquivo = fopen(nome,"a");
-    fprintf(arquivo,"%s",dados);
-    fclose(arquivo);
 }
 
 //Calcula o checksum
