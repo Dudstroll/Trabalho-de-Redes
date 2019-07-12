@@ -45,7 +45,7 @@ void armazenaDados(char *);
 //Corta a string para gravar no arquivo so os dados necessarios
 char *corta_Texto(char *, const char);
 //grava os dados no arquivo
-void grava_Arq(char *, const char);
+void grava_Arq(const char, int, double, double);
 //Verifica se o arquivo está vazio
 int arquivoVazio(const char );
 //Faz a pesquisa no arquivo
@@ -102,7 +102,6 @@ int main(int argc, char **argv)
         exit(1);
     }/* else puts("Bind realizado!!"); */
 
-    // FILE *arq = fopen("Dados.txt","r+");
     puts("Servidor aberto!!");
 
     signal(SIGCHLD, sigchld_handler);//Ativa o manipulador de sinais antes de entrar no loop
@@ -110,7 +109,6 @@ int main(int argc, char **argv)
     abrindoServidor(ServerSocket,cliente,servidor);
 
     close(ServerSocket);
-    // fclose(arq);
     return 0;
 }
 
@@ -201,6 +199,8 @@ void clienteNovo(Pacote pacote, struct sockaddr_in cliente, struct sockaddr_in s
                             char resultado[50];
                             pesquisa_Arq(pacote.mensagem,pacote.mensagem[2],resultado);
                             strcpy(pacote.mensagem,resultado);
+                            //Salva o resultado da pesquisa para mandar para o cliente
+                            //caso tenha pacote duplicado
                             strcpy(resul_duplicado,resultado);
                             enviar(pacote,clienteSocket,cliente,len);
                         }
@@ -217,7 +217,7 @@ void clienteNovo(Pacote pacote, struct sockaddr_in cliente, struct sockaddr_in s
                 enviar(pacote,clienteSocket,cliente,len);
             }
         }else{
-            //Avisa o cliente que teve pacote duplicado
+            //Teve pacote duplicado, pega o resultado obtido da pesquisa e manda para o cliente
             puts("Pacote duplicado!!");
             sprintf(pacote.mensagem,"Pacote duplicado");
             enviar(pacote,clienteSocket,cliente,len);
@@ -481,7 +481,9 @@ int arquivoVazio(const char tipo){
 		fseek(arquivo,0,SEEK_END);
 		tamanho = ftell(arquivo);
 		if(tamanho == 0){
+            puts("======================================");
 			puts("Arquivo sem dados!!");
+            puts("======================================");
             fclose(arquivo);
             return 1;
 		}
@@ -491,12 +493,22 @@ int arquivoVazio(const char tipo){
 }
 
 void armazenaDados(char *texto){
-    char aux = texto[2];
-    //tirá o D da string para salvar no arquivo
-    strcpy(texto,corta_Texto(texto,texto[4]));
-    //grava os dados no arquivo, texto[2] para passar o tipo de gasolina
-    //e gravar em arquivo separado
-    grava_Arq(texto,aux);
+    char tipo;
+    //token para cortar a string
+    char *aux;
+    int preco;
+    double lati,longi;
+    aux = strtok(texto," ");//corta o P
+    aux = strtok(NULL," ");//pega o tipo de gasolina
+    tipo = aux[0];
+    aux = strtok(NULL," ");//pega o preço
+    preco = atoi(aux);//converte o preço para inteiro
+    aux = strtok(NULL," ");//pega a latitude
+    lati = atof(aux);//muda de string para double
+    aux = strtok(NULL," ");///pega a longitude
+    longi = atof(aux);//muda de string para double
+
+    grava_Arq(tipo,preco,lati,longi);
 }
 
 //Corta a string para manipular os dados
@@ -509,9 +521,10 @@ char *corta_Texto(char *texto, const char ch){
 }
 
 //Grava os dados recebidos no arquivo
-void grava_Arq(char *dados, const char tipo){
+void grava_Arq(const char tipo, int preco, double lati, double longi){
     //Verifica o tipo de combustivel para abrir o arquivo certo e gravar
     char nome[50];
+    char mensagem[50];
     if(tipo == '0'){
         strcpy(nome,"diesel.txt");
     }else{
@@ -525,7 +538,8 @@ void grava_Arq(char *dados, const char tipo){
     }
     // printf("%s\n",dados);
     FILE *arquivo = fopen(nome,"a");
-    fprintf(arquivo,"%s",dados);
+    snprintf(mensagem,sizeof(mensagem),"%d %0.8f %0.8f\n",preco,lati,longi);
+    fprintf(arquivo,"%s",mensagem);
     fclose(arquivo);
 }
 
@@ -590,7 +604,9 @@ void pesquisa_Arq(char *dados, const char tipo, char *resultado){
     }
     //se cont = 0, então nenhum posto foi encontrado na área
     if(cont == 0){
+        puts("======================================");
         puts("Nenhum posto na area!!");
+        puts("======================================");
         sprintf(resultado,"Nenhum posto na area!!");
         //limpa o buffer de saida
         fflush(stdout);
@@ -624,11 +640,11 @@ void pesquisa_Arq(char *dados, const char tipo, char *resultado){
 double Distancia(double latitude1, double longitude1, double latitude2, double longitude2){
     int RaioDaTerra = 6371; //Raio da terra em kilometros
 	//Pega a diferença entre dois pontos 
-	//e converte a diferença em radianos
+	//e converte para radianos
     double nDLat = (latitude2 - latitude1) * (PI/180);
     double nDLon = (longitude2 - longitude1) * (PI/180);
     double nA = pow ( sin(nDLat/2), 2 ) + cos(latitude1) * cos(latitude2) * pow ( sin(nDLon/2), 2 );
- 
+    //A função atan2(double y, double x), retorna o arco tangente entre y/x
     double nC = 2 * atan2( sqrt(nA), sqrt( 1 - nA ));
     double nD = RaioDaTerra * nC;
  

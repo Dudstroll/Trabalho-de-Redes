@@ -38,6 +38,8 @@ void enviar(Pacote, int, struct sockaddr_in, socklen_t);
 unsigned char CheckSum(unsigned char *ptr, size_t sz);
 //Mostra as informações sobre o posto recebido pelo servidor
 void mostraPosto(char *);
+//Receebe o resultado da pesquisa no servidor
+void recebePesquisa(Pacote, int, struct sockaddr_in, socklen_t);
 
 int main(int argc, char **argv)
 {
@@ -150,6 +152,7 @@ void esperaACK(int clienteSocket, struct sockaddr_in servidor,socklen_t len,Paco
         if(setsockopt(clienteSocket,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout)) < 0){
             perror("Erro");
         }
+        //Espera o ACK do servidor
         if(recvfrom(clienteSocket,&resposta,sizeof(Pacote),0,(struct sockaddr *)&servidor,&len) < 0){
             //Se entra aqui é porque não recebeu resposta do servidor
             if((numRet+1) == 5){
@@ -188,48 +191,44 @@ void esperaACK(int clienteSocket, struct sockaddr_in servidor,socklen_t len,Paco
                         }
                     }else{
                         //checksum está correto
-                        //informa sobre pacotes duplicados no servidor e para a retransmissão
+                        //recebe que há pacotes duplicados no servidor e para a retransmissão
                         if(strncmp(resposta.mensagem,"Pacote duplicado",strlen("Pacote duplicado")) == 0){
                             puts("Pacotes duplicados no servidor. Parando retransmissão!!");
                             puts("Pacote entregue!!");
                             if(pacote.mensagem[0] == 'P'){
-                                recvfrom(clienteSocket,&resposta,sizeof(Pacote),MSG_WAITALL,(struct sockaddr *)&servidor,&len);
-                                //verifica a resposta do servidor 
-                                if(strncmp(resposta.mensagem,"Arquivo sem dados!!",strlen("Arquivo sem dados!!")) == 0){
-                                    puts("Arquivo sem dados!!");
-                                }else{
-                                    //verifica se o servidor retorno um posto na area
-                                    if(strncmp(resposta.mensagem,"Nenhum posto na area!!",strlen("Nenhum posto na area!!")) == 0){
-                                        puts("Nenhum posto na area!!");
-                                    }else{
-                                        //foi encontrado um posto 
-                                        mostraPosto(resposta.mensagem);
-                                    }
-                                }
+                                recebePesquisa(resposta,clienteSocket,servidor,len);
                             }
                         }else{
                             //O servidor recebeu o pacote sem erros
                             puts("Pacote entregue!!");
                             //espera os dados do servidor se for uma pesquisa
                             if(pacote.mensagem[0] == 'P'){
-                                recvfrom(clienteSocket,&resposta,sizeof(Pacote),MSG_WAITALL,(struct sockaddr *)&servidor,&len);
-                                //verifica a resposta do servidor 
-                                if(strncmp(resposta.mensagem,"Arquivo sem dados!!",strlen("Arquivo sem dados!!")) == 0){
-                                    puts("Arquivo sem dados!!");
-                                }else{
-                                    //verifica se o servidor retorno um posto na area
-                                    if(strncmp(resposta.mensagem,"Nenhum posto na area!!",strlen("Nenhum posto na area!!")) == 0){
-                                        puts("Nenhum posto na area!!");
-                                    }else{
-                                        //foi encontrado um posto 
-                                        mostraPosto(resposta.mensagem);
-                                    }
-                                }
+                                recebePesquisa(resposta,clienteSocket,servidor,len);
                             }
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+void recebePesquisa(Pacote resposta, int clienteSocket, struct sockaddr_in servidor, socklen_t len){
+    recvfrom(clienteSocket,&resposta,sizeof(Pacote),MSG_WAITALL,(struct sockaddr *)&servidor,&len);
+    //verifica a resposta do servidor 
+    if(strncmp(resposta.mensagem,"Arquivo sem dados!!",strlen("Arquivo sem dados!!")) == 0){
+        puts("======================================");
+        puts("Arquivo sem dados!!");
+        puts("======================================");
+    }else{
+        //verifica se o servidor retorno um posto na area
+        if(strncmp(resposta.mensagem,"Nenhum posto na area!!",strlen("Nenhum posto na area!!")) == 0){
+            puts("======================================");
+            puts("Nenhum posto na area!!");
+            puts("======================================");
+        }else{
+            //foi encontrado um posto 
+            mostraPosto(resposta.mensagem);
         }
     }
 }
@@ -292,5 +291,3 @@ void enviar(Pacote pacote, int Socket, struct sockaddr_in servidor, socklen_t le
         exit(1);
     }
 }
-//IP do pc: 192.168.25.32
-//D 0 2540 -22.2218 -54.8064
