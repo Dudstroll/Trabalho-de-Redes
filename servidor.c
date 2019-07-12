@@ -138,6 +138,8 @@ int abrindoServidor(int ServerSocket, struct sockaddr_in cliente, struct sockadd
 
 void clienteNovo(Pacote pacote, struct sockaddr_in cliente, struct sockaddr_in servidor){
     printf("Cliente novo no processo: %i\n", getpid());
+    //Salva o resultado de uma pesquisa para enviar para o cliente em caso de pacote duplicado
+    char resul_duplicado[50];
     //Crio um novo socket para o cliente
     int clienteSocket = novoSocket();
     //Salva o pacote anterior
@@ -199,6 +201,7 @@ void clienteNovo(Pacote pacote, struct sockaddr_in cliente, struct sockaddr_in s
                             char resultado[50];
                             pesquisa_Arq(pacote.mensagem,pacote.mensagem[2],resultado);
                             strcpy(pacote.mensagem,resultado);
+                            strcpy(resul_duplicado,resultado);
                             enviar(pacote,clienteSocket,cliente,len);
                         }
                     }
@@ -214,9 +217,14 @@ void clienteNovo(Pacote pacote, struct sockaddr_in cliente, struct sockaddr_in s
                 enviar(pacote,clienteSocket,cliente,len);
             }
         }else{
+            //Avisa o cliente que teve pacote duplicado
             puts("Pacote duplicado!!");
             sprintf(pacote.mensagem,"Pacote duplicado");
             enviar(pacote,clienteSocket,cliente,len);
+            if(pacote.mensagem[0] == 'P'){
+                strcpy(pacote.mensagem,resul_duplicado);
+                enviar(pacote,clienteSocket,cliente,len);
+            }
         }
     }
     close(clienteSocket);
@@ -548,11 +556,12 @@ void pesquisa_Arq(char *dados, const char tipo, char *resultado){
     latCli = atof(aux);//muda de string para double
     aux = strtok(NULL," ");///pega a longitude
     longCli = atof(aux);//muda de string para double
-    //dados do arquivo
+    //dados do posto com menor preço
+    //a variavel precom recebe  um valor alto apenas para a primeira comparação
 	float precom = 9999.0, preco;
-    double lat,longi;
-    //dados do menor preço
     double latm,longim;
+    //dados do arquivo
+    double lat,longi;
     char texto[50];
     //verifica se tem postos na area de pesquisa
     int cont=0;

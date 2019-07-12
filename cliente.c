@@ -143,7 +143,7 @@ int novaPorta(int socket_serv, struct sockaddr_in servidor){
 void esperaACK(int clienteSocket, struct sockaddr_in servidor,socklen_t len,Pacote pacote, Pacote resposta,int numRet){
     struct timeval timeout;
     timeout.tv_sec = 1;//1 Segundo
-    timeout.tv_usec = 250;//250 microsegundos = 25 milisegundos
+    timeout.tv_usec = 250000;//250000 microsegundos = 250 milisegundos
     numRet++;
     if(numRet < 5){
         puts("Esperando ACK!!");
@@ -192,6 +192,21 @@ void esperaACK(int clienteSocket, struct sockaddr_in servidor,socklen_t len,Paco
                         if(strncmp(resposta.mensagem,"Pacote duplicado",strlen("Pacote duplicado")) == 0){
                             puts("Pacotes duplicados no servidor. Parando retransmissão!!");
                             puts("Pacote entregue!!");
+                            if(pacote.mensagem[0] == 'P'){
+                                recvfrom(clienteSocket,&resposta,sizeof(Pacote),MSG_WAITALL,(struct sockaddr *)&servidor,&len);
+                                //verifica a resposta do servidor 
+                                if(strncmp(resposta.mensagem,"Arquivo sem dados!!",strlen("Arquivo sem dados!!")) == 0){
+                                    puts("Arquivo sem dados!!");
+                                }else{
+                                    //verifica se o servidor retorno um posto na area
+                                    if(strncmp(resposta.mensagem,"Nenhum posto na area!!",strlen("Nenhum posto na area!!")) == 0){
+                                        puts("Nenhum posto na area!!");
+                                    }else{
+                                        //foi encontrado um posto 
+                                        mostraPosto(resposta.mensagem);
+                                    }
+                                }
+                            }
                         }else{
                             //O servidor recebeu o pacote sem erros
                             puts("Pacote entregue!!");
